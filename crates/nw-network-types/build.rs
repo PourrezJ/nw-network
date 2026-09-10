@@ -47,14 +47,14 @@ fn main() -> Result<()> {
     )?;
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").context("OUT_DIR")?);
     let output_root = stable_generated_root(&out_dir, "nw-network-types")?;
-    println!(
-        "cargo:rustc-env=NW_NETWORK_TYPES_GENERATED_DIR={}",
-        output_root.display()
-    );
+    // Rust-analyzer only tracks generated sources under Cargo's actual OUT_DIR.
+    let include_root = out_dir.join("nw-network-types-generated");
     let stamp_path = output_root.join(".input-hash");
     if output_root.join("src/lib.rs").is_file()
         && fs::read_to_string(&stamp_path).is_ok_and(|stamp| stamp == input_hash)
     {
+        materialize_generated_rust_tree(&output_root, &include_root)?;
+        emit_generated_dir(&include_root);
         return Ok(());
     }
 
@@ -145,7 +145,10 @@ fn main() -> Result<()> {
         source: report,
     });
 
-    write_project(&output_root, &stamp_path, &input_hash, files, &context)
+    write_project(&output_root, &stamp_path, &input_hash, files, &context)?;
+    materialize_generated_rust_tree(&output_root, &include_root)?;
+    emit_generated_dir(&include_root);
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,6 +201,13 @@ fn stable_generated_root(out_dir: &Path, name: &str) -> Result<PathBuf> {
         .parent()
         .context("Cargo build directory has no profile parent")?;
     Ok(profile_dir.join("generated").join(name))
+}
+
+fn emit_generated_dir(include_root: &Path) {
+    println!(
+        "cargo:rustc-env=NW_NETWORK_TYPES_GENERATED_DIR={}",
+        include_root.display()
+    );
 }
 
 fn input_hash(
@@ -428,6 +438,66 @@ fn write_project(
     write_file_if_changed(stamp_path, input_hash.as_bytes())
         .with_context(|| format!("write {}", stamp_path.display()))?;
     prune_empty_dirs(output_root)
+}
+
+fn materialize_generated_rust_tree(source_root: &Path, include_root: &Path) -> Result<()> {
+    let sources = sorted_files(source_root)?
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .collect::<Vec<_>>();
+    let destinations = sources
+        .iter()
+        .map(|source| {
+            source
+                .strip_prefix(source_root)
+                .map(|relative| include_root.join(relative))
+                .with_context(|| format!("relativize generated source {}", source.display()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let expected = destinations.iter().cloned().collect::<BTreeSet<_>>();
+
+    fs::create_dir_all(include_root)
+        .with_context(|| format!("create generated include root {}", include_root.display()))?;
+    let stale_sources = sorted_files(include_root)?
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .filter(|path| !expected.contains(path))
+        .collect::<Vec<_>>();
+    for stale in stale_sources {
+        fs::remove_file(&stale)
+            .with_context(|| format!("remove stale generated include {}", stale.display()))?;
+    }
+
+    for (source, destination) in sources.iter().zip(destinations) {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("create generated include directory {}", parent.display())
+            })?;
+        }
+        materialize_generated_source(source, &destination)?;
+    }
+    prune_empty_dirs(include_root)
+}
+
+fn materialize_generated_source(source: &Path, destination: &Path) -> Result<()> {
+    let bytes =
+        fs::read(source).with_context(|| format!("read generated source {}", source.display()))?;
+    if existing_file_matches_hash(destination, bytes.len() as u64, blake3::hash(&bytes))? {
+        return Ok(());
+    }
+    match fs::remove_file(destination) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(source)
+                .with_context(|| format!("remove generated source {}", destination.display()));
+        }
+    }
+    if fs::hard_link(source, destination).is_err() {
+        fs::write(destination, bytes)
+            .with_context(|| format!("copy generated source to {}", destination.display()))?;
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
