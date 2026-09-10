@@ -1450,7 +1450,7 @@ dependencies = [
 [[package]]
 name = "nw-asset"
 version = "0.1.0"
-source = "git+https://github.com/themixednuts/nw-tools.git?rev=8741b5e04b30707fe5f3697a68e05d265599a53b#8741b5e04b30707fe5f3697a68e05d265599a53b"
+source = "git+https://github.com/themixednuts/nw-tools.git?rev=fafc9d1438cdb9f66c033968ee97c41b4ef2dabe#fafc9d1438cdb9f66c033968ee97c41b4ef2dabe"
 dependencies = [
  "thiserror",
  "uuid",
@@ -1491,7 +1491,7 @@ dependencies = [
 [[package]]
 name = "nw-jobs"
 version = "0.1.0"
-source = "git+https://github.com/themixednuts/nw-tools.git?rev=8741b5e04b30707fe5f3697a68e05d265599a53b#8741b5e04b30707fe5f3697a68e05d265599a53b"
+source = "git+https://github.com/themixednuts/nw-tools.git?rev=fafc9d1438cdb9f66c033968ee97c41b4ef2dabe#fafc9d1438cdb9f66c033968ee97c41b4ef2dabe"
 dependencies = [
  "crossbeam-channel",
  "rayon",
@@ -1559,7 +1559,7 @@ dependencies = [
 [[package]]
 name = "nw-objectstream"
 version = "0.1.0"
-source = "git+https://github.com/themixednuts/nw-tools.git?rev=8741b5e04b30707fe5f3697a68e05d265599a53b#8741b5e04b30707fe5f3697a68e05d265599a53b"
+source = "git+https://github.com/themixednuts/nw-tools.git?rev=fafc9d1438cdb9f66c033968ee97c41b4ef2dabe#fafc9d1438cdb9f66c033968ee97c41b4ef2dabe"
 dependencies = [
  "arcstr",
  "arrayvec",
@@ -1577,12 +1577,12 @@ dependencies = [
 [[package]]
 name = "nw-resources"
 version = "0.1.0"
-source = "git+https://github.com/themixednuts/nw-tools.git?rev=8741b5e04b30707fe5f3697a68e05d265599a53b#8741b5e04b30707fe5f3697a68e05d265599a53b"
+source = "git+https://github.com/themixednuts/nw-tools.git?rev=fafc9d1438cdb9f66c033968ee97c41b4ef2dabe#fafc9d1438cdb9f66c033968ee97c41b4ef2dabe"
 
 [[package]]
 name = "nw-serialize-codegen"
 version = "0.1.0"
-source = "git+https://github.com/themixednuts/nw-tools.git?rev=8741b5e04b30707fe5f3697a68e05d265599a53b#8741b5e04b30707fe5f3697a68e05d265599a53b"
+source = "git+https://github.com/themixednuts/nw-tools.git?rev=fafc9d1438cdb9f66c033968ee97c41b4ef2dabe#fafc9d1438cdb9f66c033968ee97c41b4ef2dabe"
 dependencies = [
  "anyhow",
  "blake3",
