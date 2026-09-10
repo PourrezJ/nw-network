@@ -66,10 +66,8 @@ fn main() -> Result<()> {
     )?;
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").context("OUT_DIR")?);
     let output_root = stable_generated_root(&out_dir, "nw-network")?;
-    println!(
-        "cargo:rustc-env=NW_NETWORK_GENERATED_DIR={}",
-        output_root.display()
-    );
+    // Rust-analyzer only tracks generated sources under Cargo's actual OUT_DIR.
+    let include_root = out_dir.join("nw-network-generated");
     let stamp_path = output_root.join(".generated-states-input-hash");
     let state_source_path = output_root.join("generated_states.rs");
     let state_report_path = output_root.join("generated-states.rust-report.json");
@@ -86,6 +84,15 @@ fn main() -> Result<()> {
         && conversion_report_path.is_file()
         && fs::read_to_string(&stamp_path).is_ok_and(|stamp| stamp == input_hash)
     {
+        materialize_generated_sources(
+            &include_root,
+            [
+                &state_source_path,
+                &message_source_path,
+                &conversion_source_path,
+            ],
+        )?;
+        emit_generated_dir(&include_root);
         return Ok(());
     }
 
@@ -190,6 +197,16 @@ fn main() -> Result<()> {
     write_file_if_changed(&stamp_path, input_hash.as_bytes())
         .with_context(|| format!("write {}", stamp_path.display()))?;
 
+    materialize_generated_sources(
+        &include_root,
+        [
+            &state_source_path,
+            &message_source_path,
+            &conversion_source_path,
+        ],
+    )?;
+    emit_generated_dir(&include_root);
+
     Ok(())
 }
 
@@ -273,6 +290,49 @@ fn stable_generated_root(out_dir: &Path, name: &str) -> Result<PathBuf> {
         .parent()
         .context("Cargo build directory has no profile parent")?;
     Ok(profile_dir.join("generated").join(name))
+}
+
+fn emit_generated_dir(include_root: &Path) {
+    println!(
+        "cargo:rustc-env=NW_NETWORK_GENERATED_DIR={}",
+        include_root.display()
+    );
+}
+
+fn materialize_generated_sources<'a>(
+    include_root: &Path,
+    sources: impl IntoIterator<Item = &'a PathBuf>,
+) -> Result<()> {
+    fs::create_dir_all(include_root)
+        .with_context(|| format!("create generated include root {}", include_root.display()))?;
+    for source in sources {
+        let file_name = source
+            .file_name()
+            .context("generated source has no file name")?;
+        materialize_generated_source(source, &include_root.join(file_name))?;
+    }
+    Ok(())
+}
+
+fn materialize_generated_source(source: &Path, destination: &Path) -> Result<()> {
+    let bytes =
+        fs::read(source).with_context(|| format!("read generated source {}", source.display()))?;
+    if existing_file_matches_hash(destination, bytes.len() as u64, blake3::hash(&bytes))? {
+        return Ok(());
+    }
+    match fs::remove_file(destination) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(source)
+                .with_context(|| format!("remove generated source {}", destination.display()));
+        }
+    }
+    if fs::hard_link(source, destination).is_err() {
+        fs::write(destination, bytes)
+            .with_context(|| format!("copy generated source to {}", destination.display()))?;
+    }
+    Ok(())
 }
 
 fn input_hash(
