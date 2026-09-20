@@ -197,6 +197,17 @@ def align_manual_fields(schema_fields: list[dict], manual_fields: list[dict]) ->
         })
     return out
 
+def load_state_oracle(root: Path) -> dict[tuple[int, int], dict]:
+    path = root / "cpp" / "codegen" / "state-oracle.json"
+    if not path.is_file():
+        return {}
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    fields: dict[tuple[int, int], dict] = {}
+    for type_index, state in (doc.get("states") or {}).items():
+        for field in state.get("fields") or []:
+            fields[(int(type_index), int(field["fieldIndex"]))] = field
+    return fields
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True)
@@ -215,6 +226,7 @@ def main() -> int:
     manual = parse_manual_states(root)
     exports = exported_states(root)
     public_structs = public_state_struct_names(root)
+    oracle_fields = load_state_oracle(root)
 
     replicated = [x for x in types if "replicated-state" in capabilities(x)]
     candidate_map: dict[str, list[dict]] = defaultdict(list)
@@ -257,34 +269,43 @@ def main() -> int:
         if item:
             override_by_index[meta["type_index"]] = align_manual_fields(item.get("fields") or [], meta["fields"])
 
+    exported_indices = {int(item["typeIndex"]) for item in resolved.values()}
     flat_fields: list[dict] = []
     type_rows: list[dict] = []
     missing_shapes = 0
     missing_shape_details: list[dict] = []
+    unresolved_exported_fields: list[dict] = []
     unique_shapes = set()
     for item in types:
         idx = int(item["typeIndex"])
         fields = override_by_index.get(idx, sorted(item.get("fields") or [], key=lambda f: int(f.get("index", 0))))
         start = len(flat_fields)
         for field in fields:
-            shape = field.get("wireShape") or ""
+            field_index = int(field.get("index", len(flat_fields) - start))
+            oracle = oracle_fields.get((idx, field_index), {})
+            shape = field.get("wireShape") or oracle.get("wireShape") or ""
+            rust_type = oracle.get("rustFieldType") or field.get("rustType") or field.get("sourceTypeName") or ""
             if shape:
                 unique_shapes.add(shape)
             elif "replicated-state" in capabilities(item):
                 missing_shapes += 1
-                missing_shape_details.append({
+                detail = {
                     "type_index": idx,
                     "type_name": item.get("name") or "",
-                    "field_index": int(field.get("index", len(flat_fields) - start)),
-                    "field_name": field.get("name") or "",
-                    "rust_type": field.get("rustType") or field.get("sourceTypeName") or "",
+                    "field_index": field_index,
+                    "field_name": field.get("name") or oracle.get("fieldName") or "",
+                    "rust_type": rust_type,
                     "native_type": field.get("nativeType") or "",
-                })
+                    "oracle_supported": bool(oracle.get("supported")),
+                }
+                missing_shape_details.append(detail)
+                if idx in exported_indices and not rust_type:
+                    unresolved_exported_fields.append(detail)
             flat_fields.append({
-                "index": int(field.get("index", len(flat_fields) - start)),
-                "name": field.get("name") or "",
-                "group": -1 if field.get("group") is None else int(field.get("group")),
-                "rust_type": field.get("rustType") or field.get("sourceTypeName") or "",
+                "index": field_index,
+                "name": field.get("name") or oracle.get("fieldName") or "",
+                "group": (-1 if field.get("group") is None else int(field.get("group"))) if not oracle else int(oracle.get("group", field.get("group") or 0)),
+                "rust_type": rust_type,
                 "native_type": field.get("nativeType") or "",
                 "wire_shape": shape,
             })
@@ -408,12 +429,15 @@ def main() -> int:
             "generated_messages": len(message_items),
             "unique_wire_shapes": len(unique_shapes),
             "replicated_fields_missing_wire_shape": missing_shapes,
+            "state_oracle_fields": len(oracle_fields),
+            "exported_fields_unresolved_codec": len(unresolved_exported_fields),
         },
         "missing_exported_states": missing,
         "exported_value_types_named_state": nonfragment_value_types,
         "ambiguous_exported_states": ambiguous,
         "manual_states": manual,
         "replicated_fields_missing_wire_shape_details": missing_shape_details,
+        "exported_fields_unresolved_codec_details": unresolved_exported_fields,
     }
     (out / "port_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(manifest["summary"], indent=2))
@@ -423,7 +447,9 @@ def main() -> int:
             print("  " + name, file=sys.stderr)
     if ambiguous:
         print("Ambiguous exported states:", json.dumps(ambiguous, indent=2), file=sys.stderr)
-    if args.strict and missing:
+    if args.strict and (missing or (oracle_fields and unresolved_exported_fields)):
+        if unresolved_exported_fields:
+            print("Exported fields unresolved after oracle:", json.dumps(unresolved_exported_fields, indent=2), file=sys.stderr)
         return 2
     return 0
 
