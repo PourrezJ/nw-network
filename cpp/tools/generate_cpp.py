@@ -260,6 +260,7 @@ def main() -> int:
     flat_fields: list[dict] = []
     type_rows: list[dict] = []
     missing_shapes = 0
+    missing_shape_details: list[dict] = []
     unique_shapes = set()
     for item in types:
         idx = int(item["typeIndex"])
@@ -271,6 +272,14 @@ def main() -> int:
                 unique_shapes.add(shape)
             elif "replicated-state" in capabilities(item):
                 missing_shapes += 1
+                missing_shape_details.append({
+                    "type_index": idx,
+                    "type_name": item.get("name") or "",
+                    "field_index": int(field.get("index", len(flat_fields) - start)),
+                    "field_name": field.get("name") or "",
+                    "rust_type": field.get("rustType") or field.get("sourceTypeName") or "",
+                    "native_type": field.get("nativeType") or "",
+                })
             flat_fields.append({
                 "index": int(field.get("index", len(flat_fields) - start)),
                 "name": field.get("name") or "",
@@ -404,6 +413,7 @@ def main() -> int:
         "exported_value_types_named_state": nonfragment_value_types,
         "ambiguous_exported_states": ambiguous,
         "manual_states": manual,
+        "replicated_fields_missing_wire_shape_details": missing_shape_details,
     }
     (out / "port_manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(manifest["summary"], indent=2))
