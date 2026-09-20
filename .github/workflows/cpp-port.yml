@@ -1,4 +1,6 @@
 name: C++ port parity
+permissions:
+  contents: write
 on:
   push:
     branches: [ "cpp/warboard-stats-839-layout" ]
@@ -50,6 +52,43 @@ jobs:
           test -f target/debug/generated/nw-network/generated_messages.rs
           wc -l target/debug/generated/nw-network/generated_states.rs
           wc -l target/debug/generated/nw-network/generated_messages.rs
+      - name: Materialize compact oracle in cpp/codegen
+        shell: bash
+        run: |
+          mkdir -p cpp/codegen
+          cp target/debug/generated/nw-network/generated_states.rs cpp/codegen/rust_generated_states.rs
+          python - <<'PY'
+          import json
+          src='target/debug/generated/nw-network/generated-states.rust-report.json'
+          report=json.load(open(src, encoding='utf-8'))
+          states={}
+          for plan in report['stateGenerationPlans']:
+              states[str(plan['typeIndex'])]={
+                  'typeName':plan['typeName'],
+                  'canGenerate':plan['canGenerate'],
+                  'fields':[{
+                      'fieldIndex':f['fieldIndex'],
+                      'fieldName':f['fieldName'],
+                      'group':f.get('group',0),
+                      'wireShape':f.get('wireShape'),
+                      'wireLayout':f.get('wireLayout'),
+                      'rustValueType':f.get('rustValueType'),
+                      'rustFieldType':f.get('rustFieldType'),
+                      'supported':f.get('supported',False),
+                  } for f in plan.get('fields',[])]
+              }
+          out={'version':1,'source':'NetworkRustEmitter generated-states.rust-report.json','states':states}
+          with open('cpp/codegen/state-oracle.json','w',encoding='utf-8') as f:
+              json.dump(out,f,separators=(',',':'))
+              f.write('\n')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cpp/codegen/rust_generated_states.rs cpp/codegen/state-oracle.json
+          if ! git diff --cached --quiet; then
+            git commit -m "cpp: materialize canonical Rust codegen oracle"
+            git push origin HEAD:cpp/warboard-stats-839-layout
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: rust-codegen-oracle
