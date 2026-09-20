@@ -35,7 +35,7 @@ endif()
 
 if(NW_NETWORK_BUILD_TESTS)
   enable_testing()
-  foreach(name IN ITEMS core warboard replicated_container generated_coverage)
+  foreach(name IN ITEMS core warboard replicated_container generated_coverage serialize_extra)
     add_executable("nw_${name}_test" "tests/${name}_test.cpp")
     target_link_libraries("nw_${name}_test" PRIVATE nw::network)
     target_compile_features("nw_${name}_test" PRIVATE cxx_std_20)
