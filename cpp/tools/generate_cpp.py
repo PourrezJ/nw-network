@@ -165,6 +165,13 @@ def exported_states(root: Path) -> list[str]:
             out.append(name)
     return out
 
+def public_state_struct_names(root: Path) -> set[str]:
+    out: set[str] = set()
+    for path in (root / "src" / "states").rglob("*.rs"):
+        text = path.read_text(encoding="utf-8")
+        out.update(re.findall(r"\bpub\s+struct\s+([A-Za-z_][A-Za-z0-9_]*)", text))
+    return out
+
 def capabilities(item: dict) -> set[str]:
     return set(item.get("capabilities") or [])
 
@@ -207,6 +214,7 @@ def main() -> int:
 
     manual = parse_manual_states(root)
     exports = exported_states(root)
+    public_structs = public_state_struct_names(root)
 
     replicated = [x for x in types if "replicated-state" in capabilities(x)]
     candidate_map: dict[str, list[dict]] = defaultdict(list)
@@ -215,6 +223,7 @@ def main() -> int:
             candidate_map[key].append(item)
 
     resolved: dict[str, dict] = {}
+    nonfragment_value_types: list[str] = []
     missing: list[str] = []
     ambiguous: dict[str, list[int]] = {}
     for name in exports:
@@ -237,7 +246,10 @@ def main() -> int:
                 ambiguous[name] = [int(x["typeIndex"]) for x in candidates]
                 missing.append(name)
         else:
-            missing.append(name)
+            if name in public_structs:
+                nonfragment_value_types.append(name)
+            else:
+                missing.append(name)
 
     override_by_index: dict[int, list[dict]] = {}
     for name, meta in manual.items():
@@ -377,7 +389,9 @@ def main() -> int:
             "schema_types": len(types),
             "schema_fields": len(flat_fields),
             "replicated_schema_types": len(replicated),
-            "exported_states": len(exports),
+            "exported_state_symbols": len(exports),
+            "exported_replicated_states": len(resolved),
+            "exported_value_types_named_state": len(nonfragment_value_types),
             "manual_replicated_states": len(manual),
             "resolved_exported_states": len(resolved),
             "missing_exported_states": len(missing),
@@ -387,6 +401,7 @@ def main() -> int:
             "replicated_fields_missing_wire_shape": missing_shapes,
         },
         "missing_exported_states": missing,
+        "exported_value_types_named_state": nonfragment_value_types,
         "ambiguous_exported_states": ambiguous,
         "manual_states": manual,
     }
