@@ -4,7 +4,7 @@ using namespace nw::network;
 int main(){
   auto c=ReplicatedContainer<std::vector<std::uint8_t>>::snapshot(SequenceNumber::seq(7),{10,20});
   WriteBuffer w;c.marshal(w);
-  const std::vector<std::uint8_t> expected{0,8,2,10,20};assert(w.bytes()==expected);
+  const std::vector<std::uint8_t> expected{0,1,7,2,10,20};assert(w.bytes()==expected);
   ReadBuffer r(w.span());auto decoded=ReplicatedContainer<std::vector<std::uint8_t>>::unmarshal(r);assert(r.empty());assert(decoded.values()==std::vector<std::uint8_t>({10,20}));
   using RC=ReplicatedContainer<std::vector<std::uint8_t>>;using Ch=Change<VlqU64,std::uint8_t>;
   auto delta=RC::delta({Ch::update({0},7,SequenceNumber::seq(5)),Ch::remove({1},SequenceNumber::seq(5))});
