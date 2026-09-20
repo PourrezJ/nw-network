@@ -264,20 +264,122 @@ template<>struct Marshaler<WarScheduleAdjustmentReplicatedState>{
 
 template<class T>class ReplicatedField{
 public:
-  const std::optional<T>&value()const{return value_;}
-  bool has_value()const{return value_.has_value();}
-  SequenceNumber last_modified()const{return last_modified_;}
-  void set_value(T v){value_=std::move(v);last_modified_=SequenceNumber::valid_non_sequence();}
-  void set_last_modified(SequenceNumber s){last_modified_=s;}
-  bool is_dirty(SequenceNumber baseline)const{return baseline<last_modified_;}
-  bool has_new_network_data()const{return new_network_data_;}
-  void reset_has_new_network_data(){new_network_data_=false;}
-  void marshal(WriteBuffer&w)const{if(!value_)throw ProtocolError(ErrorCode::invalid_range,"empty replicated field");Marshaler<T>::marshal(*value_,w);}
-  void unmarshal(ReadBuffer&r){value_=Marshaler<T>::unmarshal(r);last_modified_=SequenceNumber::valid_non_sequence();new_network_data_=true;}
+  using EqualsFn=bool(*)(const T&,const T&);
+  ReplicatedField()=default;
+  explicit ReplicatedField(std::optional<T> value):value_(std::move(value)),last_modified_(value_?SequenceNumber::valid_non_sequence():SequenceNumber::invalid()){}
+  static ReplicatedField some(T value){return ReplicatedField(std::optional<T>{std::move(value)});}
+  static ReplicatedField with_equals(EqualsFn equals){ReplicatedField out;out.equals_=equals;return out;}
+
+  [[nodiscard]]const std::optional<T>&value()const noexcept{return value_;}
+  [[nodiscard]]const std::optional<T>&default_value()const noexcept{return default_value_;}
+  [[nodiscard]]bool is_field_valid()const noexcept{return last_modified_.is_valid();}
+  [[nodiscard]]SequenceNumber last_modified()const noexcept{return last_modified_;}
+  [[nodiscard]]bool has_new_network_data()const noexcept{return new_network_data_;}
+  [[nodiscard]]bool has_field_payload()const noexcept{return value_.has_value();}
+  [[nodiscard]]bool is_dirty(SequenceNumber baseline)const noexcept{return last_modified_.is_valid()&&baseline<last_modified_;}
+  [[nodiscard]]bool is_dirty_since(SequenceNumber baseline)const noexcept{return is_dirty(baseline);}
+  [[nodiscard]]bool has_value()const{return is_field_valid()||is_default_value();}
+
+  void set_last_modified(SequenceNumber s)noexcept{last_modified_=s;}
+  void reset_has_new_network_data()noexcept{new_network_data_=false;}
+  void set_equals_policy(EqualsFn equals)noexcept{equals_=equals;}
+  [[nodiscard]]EqualsFn equals_policy()const noexcept{return equals_;}
+
+  void clear_value(){value_.reset();last_modified_=SequenceNumber::invalid();new_network_data_=false;}
+
+  void set_default_value(T value){
+    if(!last_modified_.is_valid()){value_=value;default_value_=std::move(value);}
+  }
+
+  void set_value(T value){
+    if(default_value_&&values_equal(*default_value_,value)){value_=std::move(value);last_modified_=SequenceNumber::invalid();}
+    else {value_=std::move(value);last_modified_=SequenceNumber::valid_non_sequence();}
+  }
+
+  void set_optional_value(std::optional<T> value){if(value)set_value(std::move(*value));else clear_value();}
+
+  template<class F> void access(F&& cb){
+    if(!value_)value_=T{};
+    if(std::forward<F>(cb)(*value_))last_modified_=SequenceNumber::valid_non_sequence();
+  }
+
+  [[nodiscard]]bool is_default_value()const{
+    return default_value_&&value_&&values_equal(*default_value_,*value_);
+  }
+
+  [[nodiscard]]bool is_field_equal(const T&rhs)const{
+    return has_value()&&value_&&values_equal(*value_,rhs);
+  }
+
+  void set_current_value_as_default(){
+    T value=value_.value_or(T{});
+    value_=value;default_value_=std::move(value);last_modified_=SequenceNumber::invalid();
+  }
+
+  void marshal(WriteBuffer&w)const{
+    if(!value_)throw ProtocolError(ErrorCode::invalid_range,"empty replicated field");
+    Marshaler<T>::marshal(*value_,w);
+  }
+
+  void unmarshal(ReadBuffer&r){
+    value_=Marshaler<T>::unmarshal(r);
+    last_modified_=SequenceNumber::valid_non_sequence();
+    new_network_data_=true;
+  }
+
+  bool merge_and_update_sequence(const ReplicatedField&old_value,const ReplicatedField&new_value,SequenceNumber seq,bool inherit_previous_network_data_status){
+    new_network_data_=false;
+    bool detected=true;
+    default_value_=old_value.default_value_?old_value.default_value_:new_value.default_value_;
+
+    if(new_value.is_default_value()){
+      const T old_effective=old_value.effective_value();
+      const T new_effective=new_value.effective_value();
+      const bool same=values_equal(new_effective,old_effective);
+      if(!old_value.last_modified_.is_valid()&&same){
+        last_modified_=SequenceNumber::invalid();
+        if(inherit_previous_network_data_status)new_network_data_=old_value.new_network_data_;
+        detected=false;
+      }else if(same){
+        last_modified_=old_value.last_modified_;
+        new_network_data_=old_value.new_network_data_;
+        detected=false;
+      }else{
+        last_modified_=seq;new_network_data_=true;
+      }
+      value_=new_effective;
+      return detected;
+    }
+
+    if(new_value.last_modified_.is_valid()){
+      const T old_effective=old_value.effective_value();
+      const T new_effective=new_value.effective_value();
+      if(old_value.last_modified_.is_valid()&&values_equal(new_effective,old_effective)){
+        last_modified_=old_value.last_modified_;
+        value_=old_value.value_;
+        if(inherit_previous_network_data_status)new_network_data_=old_value.new_network_data_;
+        detected=false;
+      }else{
+        last_modified_=seq;value_=new_value.value_;new_network_data_=true;
+      }
+    }else{
+      last_modified_=old_value.last_modified_;value_=old_value.value_;
+      if(inherit_previous_network_data_status)new_network_data_=old_value.new_network_data_;
+      detected=false;
+    }
+    return detected;
+  }
+
 private:
+  static bool default_equals(const T&a,const T&b){return a==b;}
+  [[nodiscard]]bool values_equal(const T&a,const T&b)const{return (equals_?equals_:default_equals)(a,b);}
+  [[nodiscard]]T effective_value()const{return value_.value_or(T{});}
+
   std::optional<T>value_;
   SequenceNumber last_modified_{SequenceNumber::invalid()};
+  std::optional<T>default_value_;
   bool new_network_data_{};
+  EqualsFn equals_{};
 };
 template<class T>using ReplicatedFieldHandler=ReplicatedField<T>;
 
