@@ -37,6 +37,7 @@ jobs:
             cpp/build/generated/nw_network/generated_messages.hpp
 
   rust-oracle:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[oracle]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
