@@ -205,6 +205,42 @@ template<class T>struct Marshaler<std::vector<T>>{
   static std::vector<T>unmarshal(ReadBuffer&r){auto n=unmarshal_vlq_u32(r);if(n>WIRE_VEC_CAP)throw ProtocolError(ErrorCode::container_overflow,"vector overflow");std::vector<T>v;v.reserve(n);for(std::uint32_t i=0;i<n;++i)v.push_back(Marshaler<T>::unmarshal(r));return v;}
 };
 
+
+struct Vec3{float x{},y{},z{};bool operator==(const Vec3&)const=default;};
+template<>struct Marshaler<Vec3>{
+  static void marshal(const Vec3&v,WriteBuffer&w){Marshaler<float>::marshal(v.x,w);Marshaler<float>::marshal(v.y,w);Marshaler<float>::marshal(v.z,w);}
+  static Vec3 unmarshal(ReadBuffer&r){return{Marshaler<float>::unmarshal(r),Marshaler<float>::unmarshal(r),Marshaler<float>::unmarshal(r)};}
+};
+
+struct HomePointPersistentRef{Uuid gde_id{};std::uint64_t home_point_unique_id_value{};std::uint64_t gde_id_hash{};bool operator==(const HomePointPersistentRef&)const=default;};
+template<>struct Marshaler<HomePointPersistentRef>{
+  static void marshal(const HomePointPersistentRef&v,WriteBuffer&w){Marshaler<Uuid>::marshal(v.gde_id,w);Marshaler<std::uint64_t>::marshal(v.home_point_unique_id_value,w);Marshaler<std::uint64_t>::marshal(v.gde_id_hash,w);}
+  static HomePointPersistentRef unmarshal(ReadBuffer&r){auto a=Marshaler<Uuid>::unmarshal(r);auto b=Marshaler<std::uint64_t>::unmarshal(r);auto c=Marshaler<std::uint64_t>::unmarshal(r);return{a,b,c};}
+};
+struct HomePointReplicatedState{
+  HomePointPersistentRef persistent_ref{};std::string name;Vec3 position{};std::uint64_t cooldown_duration_ns{};std::uint64_t cooldown_end_ns{};std::uint32_t respawn_type{};bool is_overloaded{};std::uint8_t is_hidden_from_respawn{};std::string home_point_unique_id;std::uint32_t respawn_modifier{};
+  bool operator==(const HomePointReplicatedState&)const=default;
+};
+template<>struct Marshaler<HomePointReplicatedState>{
+  static void marshal(const HomePointReplicatedState&v,WriteBuffer&w){Marshaler<HomePointPersistentRef>::marshal(v.persistent_ref,w);Marshaler<std::string>::marshal(v.name,w);Marshaler<Vec3>::marshal(v.position,w);Marshaler<std::uint64_t>::marshal(v.cooldown_duration_ns,w);Marshaler<std::uint64_t>::marshal(v.cooldown_end_ns,w);Marshaler<std::uint32_t>::marshal(v.respawn_type,w);Marshaler<bool>::marshal(v.is_overloaded,w);Marshaler<std::uint8_t>::marshal(v.is_hidden_from_respawn,w);Marshaler<std::string>::marshal(v.home_point_unique_id,w);Marshaler<std::uint32_t>::marshal(v.respawn_modifier,w);}
+  static HomePointReplicatedState unmarshal(ReadBuffer&r){HomePointReplicatedState v;v.persistent_ref=Marshaler<HomePointPersistentRef>::unmarshal(r);v.name=Marshaler<std::string>::unmarshal(r);v.position=Marshaler<Vec3>::unmarshal(r);v.cooldown_duration_ns=Marshaler<std::uint64_t>::unmarshal(r);v.cooldown_end_ns=Marshaler<std::uint64_t>::unmarshal(r);v.respawn_type=Marshaler<std::uint32_t>::unmarshal(r);v.is_overloaded=Marshaler<bool>::unmarshal(r);v.is_hidden_from_respawn=Marshaler<std::uint8_t>::unmarshal(r);v.home_point_unique_id=Marshaler<std::string>::unmarshal(r);v.respawn_modifier=Marshaler<std::uint32_t>::unmarshal(r);return v;}
+};
+
+struct ObjectiveResponseParametersReplicatedState{
+  Uuid objective_uuid{};std::uint64_t response_time{};std::uint16_t response_id{};bool is_selected{};bool is_complete{};bool is_repeatable{};bool has_target{};std::uint64_t target_id{};bool has_response_values{};std::vector<std::uint32_t>response_values;
+  bool operator==(const ObjectiveResponseParametersReplicatedState&)const=default;
+};
+template<>struct Marshaler<ObjectiveResponseParametersReplicatedState>{
+  static void marshal(const ObjectiveResponseParametersReplicatedState&v,WriteBuffer&w){if(v.response_values.size()>7)throw ProtocolError(ErrorCode::container_overflow,"objective response values > 7");Marshaler<Uuid>::marshal(v.objective_uuid,w);Marshaler<std::uint64_t>::marshal(v.response_time,w);Marshaler<std::uint16_t>::marshal(v.response_id,w);Marshaler<bool>::marshal(v.is_selected,w);Marshaler<bool>::marshal(v.is_complete,w);Marshaler<bool>::marshal(v.is_repeatable,w);Marshaler<bool>::marshal(v.has_target,w);Marshaler<std::uint64_t>::marshal(v.target_id,w);Marshaler<bool>::marshal(v.has_response_values,w);marshal_vlq_u32(w,static_cast<std::uint32_t>(v.response_values.size()));for(auto x:v.response_values)Marshaler<std::uint32_t>::marshal(x,w);}
+  static ObjectiveResponseParametersReplicatedState unmarshal(ReadBuffer&r){ObjectiveResponseParametersReplicatedState v;v.objective_uuid=Marshaler<Uuid>::unmarshal(r);v.response_time=Marshaler<std::uint64_t>::unmarshal(r);v.response_id=Marshaler<std::uint16_t>::unmarshal(r);v.is_selected=Marshaler<bool>::unmarshal(r);v.is_complete=Marshaler<bool>::unmarshal(r);v.is_repeatable=Marshaler<bool>::unmarshal(r);v.has_target=Marshaler<bool>::unmarshal(r);v.target_id=Marshaler<std::uint64_t>::unmarshal(r);v.has_response_values=Marshaler<bool>::unmarshal(r);auto n=unmarshal_vlq_u32(r);if(n>7)throw ProtocolError(ErrorCode::container_overflow,"objective response values > 7");v.response_values.reserve(n);for(std::uint32_t i=0;i<n;++i)v.response_values.push_back(Marshaler<std::uint32_t>::unmarshal(r));return v;}
+};
+
+struct WarScheduleAdjustmentReplicatedState{Uuid field_10_id{};std::uint32_t field_20{};std::uint16_t field_24{};std::uint32_t field_28{};std::uint64_t field_38{};bool operator==(const WarScheduleAdjustmentReplicatedState&)const=default;};
+template<>struct Marshaler<WarScheduleAdjustmentReplicatedState>{
+  static void marshal(const WarScheduleAdjustmentReplicatedState&v,WriteBuffer&w){Marshaler<Uuid>::marshal(v.field_10_id,w);Marshaler<std::uint32_t>::marshal(v.field_20,w);Marshaler<std::uint16_t>::marshal(v.field_24,w);Marshaler<std::uint32_t>::marshal(v.field_28,w);Marshaler<std::uint64_t>::marshal(v.field_38,w);}
+  static WarScheduleAdjustmentReplicatedState unmarshal(ReadBuffer&r){auto a=Marshaler<Uuid>::unmarshal(r);auto b=Marshaler<std::uint32_t>::unmarshal(r);auto c=Marshaler<std::uint16_t>::unmarshal(r);auto d=Marshaler<std::uint32_t>::unmarshal(r);auto e=Marshaler<std::uint64_t>::unmarshal(r);return{a,b,c,d,e};}
+};
+
 template<class T>class ReplicatedField{
 public:
   const std::optional<T>&value()const{return value_;}
