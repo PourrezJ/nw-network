@@ -42,7 +42,7 @@ def balanced_body(text: str, open_pos: int) -> tuple[str, int]:
             elif ch == quote:
                 quote = None
             continue
-        if ch in ('"', "'"):
+        if ch == '"':
             quote = ch
             continue
         if ch == "{":
