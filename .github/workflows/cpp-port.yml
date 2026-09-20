@@ -35,3 +35,26 @@ jobs:
             cpp/build/generated/port_manifest.json
             cpp/build/generated/nw_network/generated_states.hpp
             cpp/build/generated/nw_network/generated_messages.hpp
+
+  rust-oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materialize canonical Rust codegen oracle
+        run: cargo check --lib
+      - name: Show generated oracle
+        shell: bash
+        run: |
+          test -f target/debug/generated/nw-network/generated_states.rs
+          test -f target/debug/generated/nw-network/generated_messages.rs
+          wc -l target/debug/generated/nw-network/generated_states.rs
+          wc -l target/debug/generated/nw-network/generated_messages.rs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-codegen-oracle
+          path: |
+            target/debug/generated/nw-network/generated_states.rs
+            target/debug/generated/nw-network/generated_messages.rs
+            target/debug/generated/nw-network/generated_conversions.rs
+            target/debug/generated/nw-network/generated-states.rust-report.json
+            target/debug/generated/nw-network/generated-messages.rust-report.json
