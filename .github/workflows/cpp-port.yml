@@ -1,0 +1,37 @@
+name: C++ port parity
+on:
+  push:
+    branches: [ "cpp/warboard-stats-839-layout" ]
+    paths:
+      - "cpp/**"
+      - "src/**"
+      - "crates/nw-network-types/codegen/**"
+      - ".github/workflows/cpp-port.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S cpp -B cpp/build -DNW_NETWORK_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build cpp/build --config Release --parallel 2
+      - name: Test
+        run: ctest --test-dir cpp/build -C Release --output-on-failure
+      - name: Manifest
+        shell: bash
+        run: python -c "import json; p=json.load(open('cpp/build/generated/port_manifest.json')); print(json.dumps(p['summary'], indent=2)); assert p['summary']['missing_exported_states']==0"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpp-generated-${{ matrix.os }}
+          path: |
+            cpp/build/generated/port_manifest.json
+            cpp/build/generated/nw_network/generated_states.hpp
+            cpp/build/generated/nw_network/generated_messages.hpp
