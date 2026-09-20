@@ -169,15 +169,26 @@ enum class ReplicationCategory:std::uint8_t{Uncategorized=0,PlayerCharacter=1,No
 
 class SequenceNumber{
 public:
-  constexpr explicit SequenceNumber(std::uint64_t r=0):raw_(r){}
-  static constexpr SequenceNumber invalid(){return SequenceNumber(0);}
-  static constexpr SequenceNumber valid_non_sequence(){return SequenceNumber(1);}
-  static constexpr SequenceNumber seq(std::uint64_t v){return SequenceNumber(v+1);}
-  constexpr bool is_valid()const{return raw_!=0;}
+  static constexpr std::uint64_t INVALID_RAW = UINT64_MAX;
+  static constexpr std::uint64_t VALID_NON_SEQUENCE_RAW = 0;
+  constexpr SequenceNumber()=default;
+  constexpr explicit SequenceNumber(std::uint64_t r):raw_(r){}
+  static constexpr SequenceNumber invalid(){return SequenceNumber(INVALID_RAW);}
+  static constexpr SequenceNumber valid_non_sequence(){return SequenceNumber(VALID_NON_SEQUENCE_RAW);}
+  static constexpr SequenceNumber seq(std::uint64_t v){return SequenceNumber(v);}
+  static constexpr SequenceNumber starting_sequence(){return seq(1);}
+  constexpr bool is_valid()const{return raw_!=INVALID_RAW;}
+  constexpr std::optional<std::uint64_t> as_seq()const{return raw_==INVALID_RAW||raw_==VALID_NON_SEQUENCE_RAW?std::nullopt:std::optional<std::uint64_t>{raw_};}
   constexpr std::uint64_t raw()const{return raw_;}
-  auto operator<=>(const SequenceNumber&)const=default;
+  constexpr SequenceNumber next()const{return raw_==INVALID_RAW?invalid():SequenceNumber(raw_+1);}
+  constexpr bool operator==(const SequenceNumber&rhs)const{return raw_==rhs.raw_;}
+  constexpr std::strong_ordering operator<=>(const SequenceNumber&rhs)const{
+    if(raw_==INVALID_RAW)return rhs.raw_==INVALID_RAW?std::strong_ordering::equal:std::strong_ordering::less;
+    if(rhs.raw_==INVALID_RAW)return std::strong_ordering::greater;
+    return raw_<=>rhs.raw_;
+  }
 private:
-  std::uint64_t raw_{};
+  std::uint64_t raw_{INVALID_RAW};
 };
 
 inline constexpr std::size_t WIRE_VEC_CAP=0x0200'0000;
@@ -194,7 +205,17 @@ template<>struct Marshaler<Uuid>{static void marshal(const Uuid&v,WriteBuffer&w)
 template<>struct Marshaler<Crc32>{static void marshal(Crc32 v,WriteBuffer&w){Marshaler<std::uint32_t>::marshal(v.value,w);}static Crc32 unmarshal(ReadBuffer&r){return Crc32(Marshaler<std::uint32_t>::unmarshal(r));}};
 template<class Tag>struct Marshaler<OpaqueU64<Tag>>{static void marshal(OpaqueU64<Tag>v,WriteBuffer&w){Marshaler<std::uint64_t>::marshal(v.value,w);}static OpaqueU64<Tag>unmarshal(ReadBuffer&r){return OpaqueU64<Tag>(Marshaler<std::uint64_t>::unmarshal(r));}};
 template<>struct Marshaler<ActorRequestId>{static void marshal(const ActorRequestId&v,WriteBuffer&w){Marshaler<std::uint64_t>::marshal(v.target_local_id,w);Marshaler<std::uint64_t>::marshal(v.source_actor_ref,w);}static ActorRequestId unmarshal(ReadBuffer&r){auto a=Marshaler<std::uint64_t>::unmarshal(r);auto b=Marshaler<std::uint64_t>::unmarshal(r);return{a,b};}};
-template<>struct Marshaler<SequenceNumber>{static void marshal(SequenceNumber v,WriteBuffer&w){marshal_vlq_u64(w,v.raw());}static SequenceNumber unmarshal(ReadBuffer&r){return SequenceNumber(unmarshal_vlq_u64(r));}};
+template<>struct Marshaler<SequenceNumber>{
+  static void marshal(SequenceNumber v,WriteBuffer&w){
+    if(!v.is_valid()){Marshaler<bool>::marshal(false,w);return;}
+    Marshaler<bool>::marshal(true,w);
+    marshal_vlq_u64(w,v.raw());
+  }
+  static SequenceNumber unmarshal(ReadBuffer&r){
+    if(!Marshaler<bool>::unmarshal(r))return SequenceNumber::invalid();
+    return SequenceNumber(unmarshal_vlq_u64(r));
+  }
+};
 template<>struct Marshaler<VlqU64>{static void marshal(VlqU64 v,WriteBuffer&w){marshal_vlq_u64(w,v.value);}static VlqU64 unmarshal(ReadBuffer&r){return{unmarshal_vlq_u64(r)};}};
 template<>struct Marshaler<std::string>{
   static void marshal(const std::string&v,WriteBuffer&w){if(v.size()>WIRE_VEC_CAP)throw ProtocolError(ErrorCode::container_overflow,"string overflow");marshal_vlq_u32(w,static_cast<std::uint32_t>(v.size()));w.write_bytes({reinterpret_cast<const std::uint8_t*>(v.data()),v.size()});}
