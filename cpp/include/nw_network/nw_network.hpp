@@ -262,7 +262,12 @@ template<>struct Marshaler<WarScheduleAdjustmentReplicatedState>{
   static WarScheduleAdjustmentReplicatedState unmarshal(ReadBuffer&r){auto a=Marshaler<Uuid>::unmarshal(r);auto b=Marshaler<std::uint32_t>::unmarshal(r);auto c=Marshaler<std::uint16_t>::unmarshal(r);auto d=Marshaler<std::uint32_t>::unmarshal(r);auto e=Marshaler<std::uint64_t>::unmarshal(r);return{a,b,c,d,e};}
 };
 
-template<class T>class ReplicatedField{
+template<class T>struct DefaultCodec{
+  static void marshal(const T&value,WriteBuffer&w){Marshaler<T>::marshal(value,w);}
+  static T unmarshal(ReadBuffer&r){return Marshaler<T>::unmarshal(r);}
+};
+
+template<class T,class Codec=DefaultCodec<T>>class ReplicatedField{
 public:
   using EqualsFn=bool(*)(const T&,const T&);
   ReplicatedField()=default;
@@ -318,11 +323,11 @@ public:
 
   void marshal(WriteBuffer&w)const{
     if(!value_)throw ProtocolError(ErrorCode::invalid_range,"empty replicated field");
-    Marshaler<T>::marshal(*value_,w);
+    Codec::marshal(*value_,w);
   }
 
   void unmarshal(ReadBuffer&r){
-    value_=Marshaler<T>::unmarshal(r);
+    value_=Codec::unmarshal(r);
     last_modified_=SequenceNumber::valid_non_sequence();
     new_network_data_=true;
   }
@@ -381,7 +386,7 @@ private:
   bool new_network_data_{};
   EqualsFn equals_{};
 };
-template<class T>using ReplicatedFieldHandler=ReplicatedField<T>;
+template<class T,class Codec=DefaultCodec<T>>using ReplicatedFieldHandler=ReplicatedField<T,Codec>;
 
 inline constexpr std::size_t REPLICATED_CONTAINER_FIXED_JOURNAL_SIZE=10;
 enum class ChangeOp{add,update,remove};
